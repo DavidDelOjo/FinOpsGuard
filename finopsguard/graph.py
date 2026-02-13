@@ -35,6 +35,10 @@ class FinOpsGraph:
         return report
 
     def ingest_node(self) -> list[dict[str, Any]]:
+        if os.getenv("FINOPSGUARD_USE_MOCK_DATA", "false").lower() == "true":
+            logger.info("FINOPSGUARD_USE_MOCK_DATA=true; using mock ingest dataset")
+            return self._mock_ingest_data()
+
         lookback_days = int(self.config.get("aws", {}).get("lookback_days", 90))
         end_day = date.today()
         start_day = end_day - timedelta(days=lookback_days)
@@ -51,9 +55,6 @@ class FinOpsGraph:
                 ],
             )
         except (BotoCoreError, ClientError) as exc:
-            if os.getenv("FINOPSGUARD_USE_MOCK_DATA", "false").lower() == "true":
-                logger.warning("AWS ingest failed; using mock data because FINOPSGUARD_USE_MOCK_DATA=true: %s", exc)
-                return self._mock_ingest_data()
             logger.warning("AWS ingest failed; continuing with empty dataset: %s", exc)
             return []
 
