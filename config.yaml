@@ -8,10 +8,11 @@ schedule:
   weekly_report_hour_utc: 11
 
 thresholds:
-  anomaly_zscore: 2.5
-  min_absolute_delta_usd: 5
-  min_history_points: 7
-  baseline_days: 14
+  anomaly_zscore: 1.5
+  min_absolute_delta_usd: 1
+  min_history_points: 5
+  baseline_days: 7
+  
 
 reporting:
   teams_channel: finops-ops
