@@ -5,11 +5,10 @@ import os
 from dataclasses import asdict
 from datetime import date, timedelta
 from pathlib import Path
+from statistics import mean, pstdev
 from typing import Any
 
-import boto3
 import yaml
-from botocore.exceptions import BotoCoreError, ClientError
 
 from finopsguard.models import Anomaly, Recommendation, ReportPayload
 from finopsguard.tools.notify_teams import TeamsNotifier
@@ -44,6 +43,9 @@ class FinOpsGraph:
         start_day = end_day - timedelta(days=lookback_days)
 
         try:
+            import boto3
+            from botocore.exceptions import BotoCoreError, ClientError
+
             ce = boto3.client("ce", region_name=os.getenv("AWS_REGION", "us-east-1"))
             response = ce.get_cost_and_usage(
                 TimePeriod={"Start": start_day.isoformat(), "End": end_day.isoformat()},
@@ -54,7 +56,7 @@ class FinOpsGraph:
                     {"Type": "DIMENSION", "Key": "SERVICE"},
                 ],
             )
-        except (BotoCoreError, ClientError) as exc:
+        except (ImportError, BotoCoreError, ClientError) as exc:
             logger.warning("AWS ingest failed; continuing with empty dataset: %s", exc)
             return []
 
@@ -87,20 +89,59 @@ class FinOpsGraph:
 
     def anomaly_node(self, rows: list[dict[str, Any]]) -> list[Anomaly]:
         anomalies: list[Anomaly] = []
-        threshold_usd = float(self.config.get("thresholds", {}).get("min_absolute_delta_usd", 100.0))
+        thresholds = self.config.get("thresholds", {})
+        min_abs_delta = float(thresholds.get("min_absolute_delta_usd", 5.0))
+        zscore_threshold = float(thresholds.get("anomaly_zscore", 2.5))
+        min_history_points = int(thresholds.get("min_history_points", 7))
+        baseline_days = int(thresholds.get("baseline_days", 14))
+
+        grouped: dict[str, list[tuple[date, float]]] = {}
         for row in rows:
-            if row["cost_usd"] > threshold_usd:
-                anomalies.append(
-                    Anomaly(
-                        day=date.fromisoformat(str(row["day"])),
-                        dimension=f"{row['account']}:{row['service']}",
-                        delta_abs=float(row["cost_usd"]),
-                        delta_pct=100.0,
-                        score=2.9,
-                        severity="high" if row["cost_usd"] > (threshold_usd * 3) else "medium",
-                    )
+            day_str = str(row.get("day", date.today().isoformat()))
+            day = date.fromisoformat(day_str)
+            dimension = f"{row['account']}:{row['service']}"
+            grouped.setdefault(dimension, []).append((day, float(row["cost_usd"])))
+
+        for dimension, series in grouped.items():
+            ordered = sorted(series, key=lambda x: x[0])
+            if len(ordered) <= min_history_points:
+                continue
+
+            window = ordered[-(baseline_days + 1) :]
+            current_day, current_cost = window[-1]
+            baseline = [cost for _, cost in window[:-1]]
+
+            if len(baseline) < min_history_points:
+                continue
+
+            base_mean = mean(baseline)
+            base_std = pstdev(baseline)
+            delta_abs = current_cost - base_mean
+            if delta_abs < min_abs_delta:
+                continue
+
+            if base_std == 0:
+                score = 10.0
+            else:
+                score = delta_abs / base_std
+
+            if score < zscore_threshold:
+                continue
+
+            delta_pct = (delta_abs / base_mean * 100.0) if base_mean > 0 else 100.0
+            severity = "high" if score >= (zscore_threshold + 1.0) else "medium"
+            anomalies.append(
+                Anomaly(
+                    day=current_day,
+                    dimension=dimension,
+                    delta_abs=round(delta_abs, 2),
+                    delta_pct=round(delta_pct, 2),
+                    score=round(score, 2),
+                    severity=severity,
                 )
-        return anomalies
+            )
+
+        return sorted(anomalies, key=lambda a: a.score, reverse=True)
 
     def insight_node(self, anomalies: list[Anomaly]) -> list[dict[str, Any]]:
         # Placeholder for LLM inference using prompts/insight.txt.

@@ -9,7 +9,9 @@ schedule:
 
 thresholds:
   anomaly_zscore: 2.5
-  min_absolute_delta_usd: 100
+  min_absolute_delta_usd: 5
+  min_history_points: 7
+  baseline_days: 14
 
 reporting:
   teams_channel: finops-ops
