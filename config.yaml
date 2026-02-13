@@ -1,0 +1,25 @@
+app:
+  name: FinOps Guard
+  timezone: America/New_York
+
+schedule:
+  daily_run_hour_utc: 10
+  weekly_report_day: monday
+  weekly_report_hour_utc: 11
+
+thresholds:
+  anomaly_zscore: 2.5
+  min_absolute_delta_usd: 100
+
+reporting:
+  teams_channel: finops-ops
+  email_distribution:
+    - finops@company.com
+    - platform@company.com
+
+aws:
+  lookback_days: 90
+  required_tags:
+    - owner
+    - env
+    - cost_center
