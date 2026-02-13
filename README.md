@@ -22,8 +22,8 @@ It detects cloud spend anomalies, generates remediation recommendations, and pub
 2. Install dependencies:
    - `pip install -e .`
 3. Copy environment variables:
-   - `export TEAMS_WEBHOOK_URL="https://..."`
-   - `export SMTP_HOST="smtp.company.com"`
+   - `cp .env.example .env`
+   - Set `TEAMS_WEBHOOK_URL` in `.env` with your Teams webhook URL.
 4. Run local weekly flow:
    - `python scripts/run_weekly.py`
 
