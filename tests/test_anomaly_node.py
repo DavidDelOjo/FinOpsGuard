@@ -46,3 +46,53 @@ aws:
     assert len(anomalies) == 1
     assert anomalies[0].dimension == "prod:AmazonEC2"
     assert anomalies[0].delta_abs > 0
+
+
+def test_anomaly_node_detects_upward_trend(tmp_path) -> None:
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(
+        """
+thresholds:
+  anomaly_zscore: 99
+  min_absolute_delta_usd: 999
+  min_history_points: 5
+  baseline_days: 7
+  trend_days: 5
+  trend_min_increase_pct: 20
+  trend_min_absolute_delta_usd: 1
+aws:
+  lookback_days: 90
+""".strip()
+    )
+
+    graph = FinOpsGraph(str(cfg))
+
+    start = date(2026, 1, 1)
+    rows = []
+    for i in range(5):
+        rows.append(
+            {
+                "day": (start + timedelta(days=i)).isoformat(),
+                "account": "prod",
+                "service": "AmazonS3",
+                "tag": "platform",
+                "cost_usd": 10.0,
+            }
+        )
+
+    for i in range(5, 10):
+        rows.append(
+            {
+                "day": (start + timedelta(days=i)).isoformat(),
+                "account": "prod",
+                "service": "AmazonS3",
+                "tag": "platform",
+                "cost_usd": 16.0,
+            }
+        )
+
+    anomalies = graph.anomaly_node(rows)
+    assert len(anomalies) == 1
+    assert anomalies[0].dimension == "prod:AmazonS3"
+    assert anomalies[0].delta_abs >= 1
+    assert anomalies[0].delta_pct >= 20

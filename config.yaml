@@ -12,6 +12,9 @@ thresholds:
   min_absolute_delta_usd: 1
   min_history_points: 5
   baseline_days: 7
+  trend_days: 7
+  trend_min_increase_pct: 20
+  trend_min_absolute_delta_usd: 1
   
 
 reporting:

@@ -88,12 +88,15 @@ class FinOpsGraph:
         return raw
 
     def anomaly_node(self, rows: list[dict[str, Any]]) -> list[Anomaly]:
-        anomalies: list[Anomaly] = []
+        anomalies_by_dimension: dict[str, Anomaly] = {}
         thresholds = self.config.get("thresholds", {})
         min_abs_delta = float(thresholds.get("min_absolute_delta_usd", 5.0))
         zscore_threshold = float(thresholds.get("anomaly_zscore", 2.5))
         min_history_points = int(thresholds.get("min_history_points", 7))
         baseline_days = int(thresholds.get("baseline_days", 14))
+        trend_days = int(thresholds.get("trend_days", 7))
+        trend_min_increase_pct = float(thresholds.get("trend_min_increase_pct", 20.0))
+        trend_min_abs_delta = float(thresholds.get("trend_min_absolute_delta_usd", 1.0))
 
         grouped: dict[str, list[tuple[date, float]]] = {}
         for row in rows:
@@ -107,41 +110,67 @@ class FinOpsGraph:
             if len(ordered) <= min_history_points:
                 continue
 
+            # Spike detector: compare current point to baseline window.
             window = ordered[-(baseline_days + 1) :]
             current_day, current_cost = window[-1]
             baseline = [cost for _, cost in window[:-1]]
+            if len(baseline) >= min_history_points:
+                base_mean = mean(baseline)
+                base_std = pstdev(baseline)
+                delta_abs = current_cost - base_mean
 
-            if len(baseline) < min_history_points:
-                continue
+                if delta_abs >= min_abs_delta:
+                    if base_std == 0:
+                        score = 10.0
+                    else:
+                        score = delta_abs / base_std
 
-            base_mean = mean(baseline)
-            base_std = pstdev(baseline)
-            delta_abs = current_cost - base_mean
-            if delta_abs < min_abs_delta:
-                continue
+                    if score >= zscore_threshold:
+                        delta_pct = (delta_abs / base_mean * 100.0) if base_mean > 0 else 100.0
+                        severity = "high" if score >= (zscore_threshold + 1.0) else "medium"
+                        spike_anomaly = Anomaly(
+                            day=current_day,
+                            dimension=dimension,
+                            delta_abs=round(delta_abs, 2),
+                            delta_pct=round(delta_pct, 2),
+                            score=round(score, 2),
+                            severity=severity,
+                        )
+                        anomalies_by_dimension[dimension] = self._select_higher_score(
+                            anomalies_by_dimension.get(dimension), spike_anomaly
+                        )
 
-            if base_std == 0:
-                score = 10.0
-            else:
-                score = delta_abs / base_std
+            # Trend detector: compare recent window mean vs previous window mean.
+            if len(ordered) >= trend_days * 2:
+                prev_window = [cost for _, cost in ordered[-(trend_days * 2) : -trend_days]]
+                curr_window = [cost for _, cost in ordered[-trend_days:]]
+                prev_mean = mean(prev_window)
+                curr_mean = mean(curr_window)
+                trend_delta_abs = curr_mean - prev_mean
 
-            if score < zscore_threshold:
-                continue
+                if prev_mean > 0:
+                    trend_delta_pct = (trend_delta_abs / prev_mean) * 100.0
+                elif curr_mean > 0:
+                    trend_delta_pct = 100.0
+                else:
+                    trend_delta_pct = 0.0
 
-            delta_pct = (delta_abs / base_mean * 100.0) if base_mean > 0 else 100.0
-            severity = "high" if score >= (zscore_threshold + 1.0) else "medium"
-            anomalies.append(
-                Anomaly(
-                    day=current_day,
-                    dimension=dimension,
-                    delta_abs=round(delta_abs, 2),
-                    delta_pct=round(delta_pct, 2),
-                    score=round(score, 2),
-                    severity=severity,
-                )
-            )
+                if trend_delta_abs >= trend_min_abs_delta and trend_delta_pct >= trend_min_increase_pct:
+                    trend_score = max(1.0, trend_delta_pct / 10.0)
+                    trend_severity = "high" if trend_delta_pct >= (trend_min_increase_pct * 2.0) else "medium"
+                    trend_anomaly = Anomaly(
+                        day=ordered[-1][0],
+                        dimension=dimension,
+                        delta_abs=round(trend_delta_abs, 2),
+                        delta_pct=round(trend_delta_pct, 2),
+                        score=round(trend_score, 2),
+                        severity=trend_severity,
+                    )
+                    anomalies_by_dimension[dimension] = self._select_higher_score(
+                        anomalies_by_dimension.get(dimension), trend_anomaly
+                    )
 
-        return sorted(anomalies, key=lambda a: a.score, reverse=True)
+        return sorted(anomalies_by_dimension.values(), key=lambda a: a.score, reverse=True)
 
     def insight_node(self, anomalies: list[Anomaly]) -> list[dict[str, Any]]:
         # Placeholder for LLM inference using prompts/insight.txt.
@@ -215,3 +244,9 @@ class FinOpsGraph:
                 "cost_usd": 900.0,
             },
         ]
+
+    @staticmethod
+    def _select_higher_score(current: Anomaly | None, candidate: Anomaly) -> Anomaly:
+        if current is None:
+            return candidate
+        return candidate if candidate.score > current.score else current
