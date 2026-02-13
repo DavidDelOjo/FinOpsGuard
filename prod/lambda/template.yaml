@@ -1,0 +1,63 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: FinOps Guard production deployment (Lambda + EventBridge Scheduler)
+
+Parameters:
+  FunctionName:
+    Type: String
+    Default: finopsguard-weekly
+  ScheduleExpression:
+    Type: String
+    Default: cron(0 8 ? * MON *)
+    Description: Weekly schedule in UTC.
+  TeamsWebhookSecretArn:
+    Type: String
+    Description: ARN of the secret containing Teams webhook URL.
+
+Resources:
+  FinOpsGuardFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Ref FunctionName
+      Runtime: python3.13
+      Handler: prod/lambda/handler.lambda_handler
+      CodeUri: ../../
+      MemorySize: 512
+      Timeout: 180
+      Environment:
+        Variables:
+          AWS_REGION: us-east-1
+          CONFIG_PATH: config.yaml
+          FINOPSGUARD_USE_MOCK_DATA: "false"
+          TEAMS_WEBHOOK_SECRET_ARN: !Ref TeamsWebhookSecretArn
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - ce:GetCostAndUsage
+                - ce:GetDimensionValues
+              Resource: "*"
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource: !Ref TeamsWebhookSecretArn
+            - Effect: Allow
+              Action:
+                - logs:CreateLogGroup
+                - logs:CreateLogStream
+                - logs:PutLogEvents
+              Resource: "*"
+      Events:
+        WeeklyRun:
+          Type: Schedule
+          Properties:
+            Schedule: !Ref ScheduleExpression
+            Name: !Sub "${FunctionName}-schedule"
+            Description: Weekly FinOps Guard run
+            Enabled: true
+
+Outputs:
+  FunctionArn:
+    Description: Lambda ARN
+    Value: !GetAtt FinOpsGuardFunction.Arn

@@ -16,6 +16,8 @@ It detects cloud spend anomalies, generates remediation recommendations, and pub
 - `finopsguard/tools/notify_teams.py`: Teams webhook notifier
 - `finopsguard/prompts/`: prompt templates for insight and action stages
 - `config.yaml`: runtime configuration
+- `poc/docker/`: local proof-of-concept mode
+- `prod/lambda/`: production deployment mode (AWS Lambda + scheduler)
 
 ## Quick Start
 1. Create and activate a virtual environment.
@@ -30,3 +32,6 @@ It detects cloud spend anomalies, generates remediation recommendations, and pub
 ## Notes
 - This is an implementation skeleton ready to integrate real AWS data tools and your selected LLM provider.
 - No destructive actions are automated.
+- Production deployment guide for client accounts: `docs/DEPLOY_CLIENT_PRODUCTION.md`
+- POC Docker runbook: `docs/POC_DOCKER.md`
+- Lambda production runbook: `docs/DEPLOY_LAMBDA_PROD.md`
