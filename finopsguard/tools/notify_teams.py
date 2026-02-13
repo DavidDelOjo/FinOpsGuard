@@ -20,6 +20,13 @@ class TeamsNotifier:
             raise RuntimeError("TEAMS_WEBHOOK_URL is not set")
         return cls(webhook_url=webhook)
 
+    @classmethod
+    def from_env_optional(cls) -> "TeamsNotifier | None":
+        webhook = os.getenv("TEAMS_WEBHOOK_URL", "")
+        if not webhook:
+            return None
+        return cls(webhook_url=webhook)
+
     def send_report(
         self,
         title: str,
